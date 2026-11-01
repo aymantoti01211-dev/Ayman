@@ -1,8 +1,9 @@
-
 name: Build HANIMEX APK
 
 on:
   push:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -11,6 +12,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      PROJECT_ZIP: HANIMEX-android-project-1.zip
+      PROJECT_DIR: project
 
     steps:
       - name: Download project
@@ -22,24 +26,45 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Validate project archive
+        shell: bash
+        run: |
+          ls -l
+          test -f "$PROJECT_ZIP" || {
+            echo "Missing project archive: $PROJECT_ZIP"
+            exit 1
+          }
 
       - name: Extract project
+        shell: bash
         run: |
-          mkdir project
-          unzip -q HANIMEX-android-project-1.zip -d project
+          rm -rf "$PROJECT_DIR"
+          mkdir -p "$PROJECT_DIR"
+          unzip -q "$PROJECT_ZIP" -d "$PROJECT_DIR"
+
+          echo "Extracted project structure:"
+          find "$PROJECT_DIR" -maxdepth 2 -type f \( -name gradlew -o -name settings.gradle -o -name settings.gradle.kts -o -name build.gradle -o -name build.gradle.kts \) | head -50
 
       - name: Build APK
+        shell: bash
         run: |
-          cd project
-          gradle assembleDebug
+          cd "$PROJECT_DIR"
+          if [ ! -f gradlew ]; then
+            echo "Gradle wrapper not found inside extracted project."
+            find . -maxdepth 4 -name gradlew -print
+            exit 1
+          fi
+
+          chmod +x gradlew
+          ./gradlew assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: HANIMEX-APK
-          path: project/app/build/outputs/apk/debug/app-debug.apk
-          
+          path: |
+            ${{ github.workspace }}/project/**/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
